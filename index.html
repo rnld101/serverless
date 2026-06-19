@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Customer Orders Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style>
+        .status-pending { background-color: #fef3c7; color: #d97706; }
+        .status-completed { background-color: #d1fae5; color: #059669; }
+        .status-cancelled { background-color: #fee2e2; color: #dc2626; }
+    </style>
+</head>
+<body class="bg-gray-50 font-sans antialiased">
+
+    <nav class="bg-slate-800 text-white shadow-md p-4">
+        <div class="max-w-7xl mx-auto flex justify-between items-center">
+            <h1 class="text-xl font-bold tracking-wide">📦 Order Management System</h1>
+            <span class="text-xs bg-emerald-500 text-slate-900 px-2 py-1 rounded font-mono font-bold">API Connected</span>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto p-4 md:p-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
+        
+        <div class="space-y-6 lg:col-span-1">
+            
+            <div class="bg-white p-6 rounded-xl shadow-xs border border-gray-200">
+                <h2 class="text-lg font-semibold text-gray-800 mb-4 border-b pb-2">Create New Order</h2>
+                <form id="orderForm" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Customer ID</label>
+                        <input type="text" id="cust_id" required placeholder="e.g. CUST-101" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Total Amount ($)</label>
+                        <input type="number" id="amount" step="0.01" required placeholder="0.00" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Items (Comma separated)</label>
+                        <input type="text" id="items" required placeholder="Laptop, Mouse, Keyboard" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg font-medium transition duration-200 cursor-pointer">Submit Order</button>
+                </form>
+            </div>
+
+            <div class="bg-white p-6 rounded-xl shadow-xs border border-gray-200">
+                <h2 class="text-lg font-semibold text-gray-800 mb-4 border-b pb-2">Filter Dashboard</h2>
+                <div class="flex gap-2">
+                    <input type="text" id="searchCustomerId" placeholder="Search Customer ID..." class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <button onclick="fetchCustomerOrders()" class="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-lg font-medium cursor-pointer">Filter</button>
+                </div>
+                <button onclick="fetchAllOrders()" class="w-full mt-3 text-sm text-blue-600 hover:underline text-center block">Clear Filter / View All</button>
+            </div>
+
+        </div>
+
+        <div class="lg:col-span-2">
+            <div class="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden">
+                <div class="p-6 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+                    <h2 class="text-lg font-semibold text-gray-800" id="tableTitle">All Active Orders</h2>
+                    <span id="orderCount" class="bg-gray-200 text-gray-700 text-xs font-bold px-2.5 py-1 rounded-full">0 Orders</span>
+                </div>
+                
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-gray-100 text-gray-600 uppercase text-xs tracking-wider border-b border-gray-200">
+                                <th class="p-4">Customer ID</th>
+                                <th class="p-4">Order ID</th>
+                                <th class="p-4">Items</th>
+                                <th class="p-4">Amount</th>
+                                <th class="p-4">Status</th>
+                                <th class="p-4 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ordersTableBody" class="divide-y divide-gray-100 text-sm text-gray-700">
+                            </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        const API_BASE_URL = "http://54.92.137.18:8000";
+
+        // Initial Load
+        document.addEventListener("DOMContentLoaded", () => {
+            fetchAllOrders();
+            
+            // Intercept form submissions
+            document.getElementById("orderForm").addEventListener("submit", createOrder);
+        });
+
+        // 1. Fetch All Orders (DynamoDB Scan)
+        async function fetchAllOrders() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/orders`);
+                const data = await response.json();
+                document.getElementById("tableTitle").innerText = "All Active Orders";
+                renderTable(data.orders || []);
+            } catch (err) {
+                alert("Error connecting to backend API base. Ensure CORS is enabled.");
+                console.error(err);
+            }
+        }
+
+        // 2. Fetch Target Customer Orders (DynamoDB Query)
+        async function fetchCustomerOrders() {
+            const customerId = document.getElementById("searchCustomerId").value.trim();
+            if (!customerId) return fetchAllOrders();
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/orders/customer/${customerId}`);
+                const data = await response.json();
+                document.getElementById("tableTitle").innerText = `Orders for ${customerId}`;
+                renderTable(data.orders || []);
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        // 3. Post New Order Form Handler
+        async function createOrder(e) {
+            e.preventDefault();
+            const customer_id = document.getElementById("cust_id").value.trim();
+            const amount = parseFloat(document.getElementById("amount").value);
+            const items = document.getElementById("items").value.split(",").map(i => i.trim());
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/orders`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ customer_id, amount, items })
+                });
+
+                if (response.ok) {
+                    document.getElementById("orderForm").reset();
+                    fetchAllOrders(); // Refresh table view
+                } else {
+                    alert("Failed to submit order.");
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        // 4. Update Order Status Handler
+        async function updateStatus(customerId, orderId, selectElement) {
+            const newStatus = selectElement.value;
+            try {
+                const response = await fetch(`${API_BASE_URL}/orders/${customerId}/${orderId}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ status: newStatus })
+                });
+                if (!response.ok) alert("Failed to update status.");
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        // 5. Delete Order Request
+        async function deleteOrder(customerId, orderId) {
+            if (!confirm(`Are you sure you want to delete order ${orderId}?`)) return;
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/orders/${customerId}/${orderId}`, {
+                    method: "DELETE"
+                });
+
+                if (response.ok) {
+                    fetchAllOrders();
+                } else {
+                    alert("Failed to delete order.");
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        // Helper: Inject rows cleanly into table DOM element
+        function renderTable(orders) {
+            const tbody = document.getElementById("ordersTableBody");
+            const countSpan = document.getElementById("orderCount");
+            tbody.innerHTML = "";
+            countSpan.innerText = `${orders.length} Orders`;
+
+            if (orders.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-gray-400 italic">No orders found.</td></tr>`;
+                return;
+            }
+
+            orders.forEach(order => {
+                const itemsList = Array.isArray(order.items) ? order.items.join(", ") : order.items;
+                const tr = document.createElement("tr");
+                tr.className = "hover:bg-gray-50 transition border-b border-gray-100";
+                
+                tr.innerHTML = `
+                    <td class="p-4 font-medium text-gray-900">${order.customer_id}</td>
+                    <td class="p-4 font-mono text-xs text-gray-500">${order.order_id}</td>
+                    <td class="p-4 max-w-xs truncate" title="${itemsList}">${itemsList}</td>
+                    <td class="p-4 font-semibold">$${parseFloat(order.amount).toFixed(2)}</td>
+                    <td class="p-4">
+                        <select onchange="updateStatus('${order.customer_id}', '${order.order_id}', this)" 
+                                class="text-xs font-semibold rounded px-2 py-1 focus:outline-none cursor-pointer 
+                                ${order.status === 'PENDING' ? 'status-pending' : order.status === 'COMPLETED' ? 'status-completed' : 'status-cancelled'}">
+                            <option value="PENDING" ${order.status === 'PENDING' ? 'selected' : ''}>PENDING</option>
+                            <option value="COMPLETED" ${order.status === 'COMPLETED' ? 'selected' : ''}>COMPLETED</option>
+                            <option value="CANCELLED" ${order.status === 'CANCELLED' ? 'selected' : ''}>CANCELLED</option>
+                        </select>
+                    </td>
+                    <td class="p-4 text-right">
+                        <button onclick="deleteOrder('${order.customer_id}', '${order.order_id}')" class="text-red-500 hover:text-red-700 font-medium text-xs transition cursor-pointer">Delete</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+    </script>
+</body>
+</html>
